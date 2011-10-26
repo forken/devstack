@@ -53,7 +53,7 @@ IMAGE_FNAME=$DIST_NAME.raw
 GUEST_NAME=${GUEST_NAME:-kvmstack}
 
 # Original version of built image
-BASE_IMAGE=$KVMSTACK_DIR/images/$DIST_NAME.raw
+BASE_IMAGE=$IMAGES_DIR/$DIST_NAME.raw
 
 # Copy of base image, which we pre-install with tasty treats
 VM_IMAGE=$IMAGES_DIR/$DIST_NAME.$GUEST_NAME.raw
@@ -72,11 +72,8 @@ COPY_DIR=$VM_DIR/copy
 mkdir -p $COPY_DIR
 
 # Create the base image if it does not yet exist
-if [ ! -e $IMAGES_DIR/$IMAGE_FNAME ]; then
-    cd $TOOLS_DIR
-    ./make_image.sh -m -r 5000  $DIST_NAME raw
-    mv $DIST_NAME.raw $BASE_IMAGE
-    cd $TOP_DIR
+if [ ! -e $BASE_IMAGE ]; then
+    $TOOLS_DIR/get_uec_image.sh -f raw -r 5000 $DIST_NAME $BASE_IMAGE
 fi
 
 # Create a copy of the base image
@@ -112,7 +109,8 @@ trap kill_unmount SIGINT
 DEST=${DEST:-/opt/stack}
 
 # Mount the file system
-mount -o loop,offset=32256 $VM_IMAGE  $COPY_DIR
+# For some reason, UEC-based images want 255 heads * 63 sectors * 512 byte sectors = 8225280
+mount -o loop,offset=8225280 $VM_IMAGE  $COPY_DIR
 
 # git clone only if directory doesn't exist already.  Since ``DEST`` might not
 # be owned by the installation user, we create the directory and change the
@@ -245,7 +243,7 @@ if ! timeout 60 sh -c "while ! [ -e /sys/block/$NBD_DEV/pid ]; do sleep 1; done"
 fi
 
 # Mount the instance
-mount $NBD $ROOTFS -o offset=32256 -t ext4
+mount $NBD $ROOTFS -o offset=8225280 -t ext4
 
 # Configure instance network
 INTERFACES=$ROOTFS/etc/network/interfaces
