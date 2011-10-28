@@ -237,13 +237,13 @@ qemu-img create -f qcow2 -b $VM_IMAGE disk
 # Connect our nbd and wait till it is mountable
 qemu-nbd -c $NBD disk
 NBD_DEV=`basename $NBD`
-if ! timeout 60 sh -c "while ! [ -e /sys/block/$NBD_DEV/pid ]; do sleep 1; done"; then
+if ! timeout 60 sh -c "while ! [ -e /dev/${NBD}p1 ]; do sleep 1; done"; then
     echo "Couldn't connect $NBD"
     exit 1
 fi
 
 # Mount the instance
-mount $NBD $ROOTFS -o offset=8225280 -t ext4
+mount ${NBD}p1 $ROOTFS
 
 # Configure instance network
 INTERFACES=$ROOTFS/etc/network/interfaces
@@ -321,6 +321,8 @@ cat > $RC_LOCAL <<EOF
 # Reboot if this is our first run to enable console log on $DIST_NAME :(
 if [ ! -e /root/firstlaunch ]; then
     touch /root/firstlaunch
+    # Prevent GRUB 2 from stopping at the menu on this reboot
+    sed -e 's/^recordfail=1/recordfail=0/' -i /boot/grub/grubenv
     reboot -f
     exit 0
 fi
@@ -336,10 +338,20 @@ echo "export PS1='${debian_chroot:+($debian_chroot)}\\u@\\H:\\w\\$ '" >> $ROOTFS
 # Give stack ownership over $DEST so it may do the work needed
 chroot $ROOTFS chown -R stack $DEST
 
+# GRUB 2 wants to see /dev
+mount -o bind /dev $ROOTFS/dev
+
 # Change boot params so that we get a console log
-sudo sed -e "s/quiet splash/splash console=ttyS0 console=ttyS1,19200n8/g" -i $ROOTFS/boot/grub/menu.lst
-sudo sed -e "s/^hiddenmenu//g" -i $ROOTFS/boot/grub/menu.lst
-#chroot $ROOTFS grub-install /dev/vda
+G_DEV_UUID=`blkid -t LABEL=cloudimg-rootfs -s UUID -o value | head -1`
+sed -e "s/GRUB_TIMEOUT=.*$/GRUB_TIMEOUT=3/" -i $ROOTFS/etc/default/grub
+sed -e 's/GRUB_CMDLINE_LINUX_DEFAULT=.*$/GRUB_CMDLINE_LINUX_DEFAULT="console=ttyS0 console=tty0 ds=nocloud ubuntu-pass=pass"/' -i $ROOTFS/etc/default/grub
+sed -e 's/[#]*GRUB_TERMINAL=.*$/GRUB_TERMINAL="serial console"/' -i $ROOTFS/etc/default/grub
+echo 'GRUB_SERIAL_COMMAND="serial --unit=0"' >>$ROOTFS/etc/default/grub
+echo 'GRUB_DISABLE_OS_PROBER=true' >>$ROOTFS/etc/default/grub
+echo "GRUB_DEVICE_UUID=$G_DEV_UUID" >>$ROOTFS/etc/default/grub
+
+chroot $ROOTFS update-grub
+umount $ROOTFS/dev
 
 # Unmount
 umount $ROOTFS || echo 'ok'
