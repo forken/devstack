@@ -110,7 +110,7 @@ DEST=${DEST:-/opt/stack}
 
 # Mount the file system
 # For some reason, UEC-based images want 255 heads * 63 sectors * 512 byte sectors = 8225280
-mount -o loop,offset=8225280 $VM_IMAGE  $COPY_DIR
+mount -t ext4 -o loop,offset=8225280 $VM_IMAGE  $COPY_DIR
 
 # git clone only if directory doesn't exist already.  Since ``DEST`` might not
 # be owned by the installation user, we create the directory and change the
@@ -237,7 +237,7 @@ qemu-img create -f qcow2 -b $VM_IMAGE disk
 # Connect our nbd and wait till it is mountable
 qemu-nbd -c $NBD disk
 NBD_DEV=`basename $NBD`
-if ! timeout 60 sh -c "while ! [ -e /dev/${NBD}p1 ]; do sleep 1; done"; then
+if ! timeout 60 sh -c "while ! [ -e ${NBD}p1 ]; do sleep 1; done"; then
     echo "Couldn't connect $NBD"
     exit 1
 fi
@@ -315,21 +315,19 @@ EOF
 chmod 755 $RUN_SH
 
 # Make runner launch on boot
-RC_LOCAL=$ROOTFS/etc/init.d/local
+RC_LOCAL=$ROOTFS/etc/init.d/zlocal
 cat > $RC_LOCAL <<EOF
 #!/bin/sh -e
 # Reboot if this is our first run to enable console log on $DIST_NAME :(
 if [ ! -e /root/firstlaunch ]; then
     touch /root/firstlaunch
-    # Prevent GRUB 2 from stopping at the menu on this reboot
-    sed -e 's/^recordfail=1/recordfail=0/' -i /boot/grub/grubenv
     reboot -f
     exit 0
 fi
 su -c "$DEST/run.sh" stack
 EOF
 chmod +x $RC_LOCAL
-chroot $ROOTFS sudo update-rc.d local defaults 80
+chroot $ROOTFS sudo update-rc.d zlocal defaults 99
 
 # Make our ip address hostnames look nice at the command prompt
 echo "export PS1='${debian_chroot:+($debian_chroot)}\\u@\\H:\\w\\$ '" >> $ROOTFS/$DEST/.bashrc
@@ -352,6 +350,10 @@ echo "GRUB_DEVICE_UUID=$G_DEV_UUID" >>$ROOTFS/etc/default/grub
 
 chroot $ROOTFS update-grub
 umount $ROOTFS/dev
+
+# Pre-generate ssh host keys and allow password login
+chroot $ROOTFS dpkg-reconfigure openssh-server
+sed -e 's/^PasswordAuthentication.*$/PasswordAuthentication yes/' -i $ROOTFS/etc/ssh/sshd_config
 
 # Unmount
 umount $ROOTFS || echo 'ok'
