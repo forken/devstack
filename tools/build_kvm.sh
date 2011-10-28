@@ -339,6 +339,14 @@ chroot $ROOTFS chown -R stack $DEST
 # GRUB 2 wants to see /dev
 mount -o bind /dev $ROOTFS/dev
 
+# Set the hostname
+echo $GUEST_NAME > $ROOTFS/etc/hostname
+
+# We need the hostname to resolve for rabbit to launch
+if ! grep -q $GUEST_NAME $ROOTFS/etc/hosts; then
+    echo "$GUEST_IP $GUEST_NAME" >> $ROOTFS/etc/hosts
+fi
+
 # Change boot params so that we get a console log
 G_DEV_UUID=`blkid -t LABEL=cloudimg-rootfs -s UUID -o value | head -1`
 sed -e "s/GRUB_TIMEOUT=.*$/GRUB_TIMEOUT=3/" -i $ROOTFS/etc/default/grub
